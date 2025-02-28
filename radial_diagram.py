@@ -2,14 +2,16 @@ import sys
 import math
 import json
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QGraphicsView, QGraphicsScene,
-                             QGraphicsEllipseItem, QGraphicsLineItem, QGraphicsPolygonItem, QUndoCommand,
+                             QGraphicsEllipseItem, QGraphicsLineItem, QGraphicsPolygonItem,
                              QGraphicsTextItem, QMenu, QAction, QInputDialog, QMessageBox,
                              QUndoStack, QUndoCommand, QFileDialog, QWidget, QVBoxLayout, QHBoxLayout,
                              QPushButton, QColorDialog, QDialog, QLabel, QLineEdit, QDialogButtonBox,
-                             QGraphicsRectItem, QFormLayout, QSpinBox, QSlider, QGraphicsItem)
-from PyQt5.QtGui import QPainter
-from PyQt5.QtCore import Qt, QPointF, QLineF, QRectF, QPoint
-from PyQt5.QtGui import QPen, QBrush, QColor, QPolygonF, QPainterPath
+                             QGraphicsRectItem, QFormLayout, QSpinBox, QSlider, QGraphicsItem,
+                             QGraphicsDropShadowEffect)
+from PyQt5.QtGui import (QPainter, QPen, QBrush, QColor, QPolygonF, QPainterPath,
+                        QLinearGradient, QIcon)
+from PyQt5.QtCore import Qt, QPointF, QLineF, QRectF, QPoint, QSizeF
+from styles import COLORS
 
 # --- Utility Functions ---
 
@@ -73,6 +75,10 @@ class ScopeBlob:
         self.polygon_item = None
         self.label = label
         self.label_item = None
+        self.start_swimlane = None
+        self.end_swimlane = None
+        self.start_outcome = None
+        self.end_outcome = None
 
     def add_outcome(self, outcome):
         if outcome not in self.outcomes:
@@ -228,6 +234,9 @@ class OutcomeItem(QGraphicsEllipseItem):
         self.text_item.setPos(15, -5)
         self.start_pos = None
         self.setAcceptHoverEvents(True)
+        
+        # Track associated blobs
+        self.associated_blobs = []
 
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -284,10 +293,38 @@ class OutcomeItem(QGraphicsEllipseItem):
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self.start_pos = self.pos()
+            # Store initial distance for calculating new distance during drag
+            self.start_distance = self.outcome.distance
         elif event.button() == Qt.RightButton:
             self.diagram_scene.show_outcome_context_menu(event.screenPos(), self)
         super().mousePressEvent(event)
 
+    def mouseMoveEvent(self, event):
+        if self.isSelected():
+            super().mouseMoveEvent(event)
+            # Calculate new distance based on position relative to center
+            center = self.diagram_scene.diagram.center
+            pos = self.pos() + QPointF(5, 5)  # Center of outcome
+            new_distance = math.sqrt((pos.x() - center.x())**2 + (pos.y() - center.y())**2)
+            
+            # Update outcome position and distance
+            self.outcome.position = pos
+            self.outcome.distance = new_distance
+            
+            # Update associated blobs
+            for blob_item in self.associated_blobs:
+                if blob_item and blob_item.blob:
+                    # Recalculate blob points
+                    points = self.diagram_scene.calculate_blob_points(
+                        blob_item.blob.start_swimlane,
+                        blob_item.blob.end_swimlane,
+                        blob_item.blob.start_outcome,
+                        blob_item.blob.end_outcome
+                    )
+                    if points:
+                        polygon = QPolygonF(points)
+                        blob_item.setPolygon(polygon)
+    
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton and self.start_pos is not None:
             new_pos = self.pos()
@@ -510,39 +547,82 @@ class AddBlobCommand(QUndoCommand):
         self.blob_item = None
 
     def redo(self):
-        # Create and add the blob
-        self.blob = self.scene.diagram.add_blob(self.points, label=self.label)
-        self.blob_item = ScopeBlobItem(self.blob, self.scene)
-        self.scene.addItem(self.blob_item)
-        self.blob.polygon_item = self.blob_item
-        self.scene.diagram.find_outcomes_in_blob(self.blob)
-        
-        # Update visual appearance
-        if self.blob.points:
-            polygon = QPolygonF([QPointF(p[0], p[1]) for p in self.blob.points])
-            self.blob_item.setPolygon(polygon)
+        try:
+            # Create blob with modern styling
+            color = QColor(COLORS['primary'])
+            color.setAlpha(40)
+            self.blob = self.scene.diagram.add_blob(self.points, color=color, label=self.label)
+            
+            # Store swimlanes and outcomes
+            self.blob.start_swimlane = self.scene.start_swimlane
+            self.blob.end_swimlane = self.scene.end_swimlane
+            self.blob.start_outcome = self.scene.start_outcome
+            self.blob.end_outcome = self.scene.end_outcome
+            
+            # Create and add blob item
+            self.blob_item = ScopeBlobItem(self.blob, self.scene)
+            self.scene.addItem(self.blob_item)
+            self.blob.polygon_item = self.blob_item
+            
+            # Associate blob with outcomes
+            if self.blob.start_outcome:
+                self.blob.start_outcome.item.associated_blobs.append(self.blob_item)
+            if self.blob.end_outcome:
+                self.blob.end_outcome.item.associated_blobs.append(self.blob_item)
+        except Exception as e:
+            print(f"Error in AddBlobCommand.redo: {e}")
 
     def undo(self):
-        if self.blob_item:
-            self.scene.removeItem(self.blob_item)
-        if self.blob:
-            self.scene.diagram.remove_blob(self.blob)
+        try:
+            # Remove blob from associated outcomes
+            if self.blob.start_outcome:
+                self.blob.start_outcome.item.associated_blobs.remove(self.blob_item)
+            if self.blob.end_outcome:
+                self.blob.end_outcome.item.associated_blobs.remove(self.blob_item)
+            
+            # Remove blob from scene
+            if self.blob_item:
+                self.scene.removeItem(self.blob_item)
+            if self.blob:
+                self.scene.diagram.remove_blob(self.blob)
+        except Exception as e:
+            print(f"Error in AddBlobCommand.undo: {e}")
 
 class ScopeBlobItem(QGraphicsPolygonItem):
     def __init__(self, blob, diagram_scene):
         super().__init__()
         self.blob = blob
         self.diagram_scene = diagram_scene
-        self.setBrush(QBrush(blob.color))
-        self.setPen(QPen(Qt.black))
+        
+        # Modern styling
+        color = QColor(COLORS['primary'])
+        color.setAlpha(40)  # Very transparent fill
+        self.setBrush(QBrush(color))
+        
+        # Gradient pen for a more polished look
+        gradient = QLinearGradient(0, 0, 10, 10)
+        gradient.setColorAt(0, QColor(COLORS['primary']))
+        gradient.setColorAt(1, QColor(COLORS['primary_light']))
+        pen = QPen(QBrush(gradient), 2)
+        pen.setStyle(Qt.SolidLine)
+        self.setPen(pen)
+        
         self.update_polygon()
         self.setFlag(QGraphicsPolygonItem.ItemIsSelectable, True)
         # Make sure blob doesn't block mouse events to items underneath
         self.setAcceptedMouseButtons(Qt.NoButton)
-
+        
+        # Modern label styling
         self.label_item = QGraphicsTextItem(self.blob.label, self)
+        self.label_item.setDefaultTextColor(QColor(COLORS['text']))
         if self.blob.points:
-            self.label_item.setPos(self.boundingRect().topLeft()) #position relative to blob.
+            # Center the label
+            br = self.boundingRect()
+            label_br = self.label_item.boundingRect()
+            self.label_item.setPos(
+                br.center().x() - label_br.width() / 2,
+                br.center().y() - label_br.height() / 2
+            )
 
     def update_polygon(self):
         polygon = QPolygonF([QPointF(p[0], p[1]) for p in self.blob.points])
@@ -640,14 +720,151 @@ class DiagramView(QGraphicsView):
         )
 
 class DiagramScene(QGraphicsScene):
+    def __init__(self, diagram, undo_stack, parent=None):
+        super().__init__(parent)
+        self.diagram = diagram
+        self.undo_stack = undo_stack
+        self.drawing_blob = False
+        self.start_swimlane = None
+        self.start_outcome = None
+        self.end_swimlane = None
+        self.end_outcome = None
+        self.preview_rect = None
+        self.setSceneRect(-400, -300, 1600, 1200)  # Larger scene rect for zooming
+        
+    def find_closest_swimlane(self, pos):
+        """Find the closest swimlane to a given position"""
+        min_dist = float('inf')
+        closest_swimlane = None
+        point = QPointF(pos.x(), pos.y())
+        
+        for swimlane in self.diagram.swimlanes.values():
+            # Get the line of the swimlane
+            start = self.diagram.center
+            end = QPointF(
+                self.diagram.center.x() + swimlane.length * math.cos(math.radians(swimlane.angle)),
+                self.diagram.center.y() + swimlane.length * math.sin(math.radians(swimlane.angle))
+            )
+            line = QLineF(start, end)
+            
+            # Calculate distance from point to line
+            dist = abs((end.y() - start.y()) * point.x() - 
+                      (end.x() - start.x()) * point.y() + 
+                      end.x() * start.y() - 
+                      end.y() * start.x()) / line.length()
+            
+            if dist < min_dist:
+                min_dist = dist
+                closest_swimlane = swimlane
+        
+        return closest_swimlane
+    
+    def calculate_curved_rect_points(self, start_swimlane, end_swimlane):
+        """Calculate points for a curved rectangle between swimlanes"""
+        if not (start_swimlane and end_swimlane):
+            return None
+            
+        # Get angles in radians
+        start_angle = math.radians(start_swimlane.angle)
+        end_angle = math.radians(end_swimlane.angle)
+        
+        # Ensure angles are in correct order
+        if end_angle < start_angle:
+            start_angle, end_angle = end_angle, start_angle
+            start_swimlane, end_swimlane = end_swimlane, start_swimlane
+        
+        # Calculate points
+        points = []
+        num_points = 20  # Number of points for smooth curve
+        
+        # Inner curve (closer to center)
+        inner_radius = 50  # Distance from center
+        for i in range(num_points):
+            t = i / (num_points - 1)
+            angle = start_angle + t * (end_angle - start_angle)
+            x = self.diagram.center.x() + inner_radius * math.cos(angle)
+            y = self.diagram.center.y() + inner_radius * math.sin(angle)
+            points.append(QPointF(x, y))
+        
+        # Outer curve
+        outer_radius = start_swimlane.length * 0.8  # 80% of swimlane length
+        for i in range(num_points - 1, -1, -1):
+            t = i / (num_points - 1)
+            angle = start_angle + t * (end_angle - start_angle)
+            x = self.diagram.center.x() + outer_radius * math.cos(angle)
+            y = self.diagram.center.y() + outer_radius * math.sin(angle)
+            points.append(QPointF(x, y))
+        
+        return points
+
+    def find_closest_outcome(self, pos, swimlane):
+        """Find the closest outcome on a swimlane to a given position"""
+        min_dist = float('inf')
+        closest_outcome = None
+        point = QPointF(pos.x(), pos.y())
+        
+        for outcome in swimlane.outcomes:
+            outcome_pos = outcome.item.pos() + QPointF(5, 5)  # Center of outcome
+            dist = math.sqrt((point.x() - outcome_pos.x())**2 + (point.y() - outcome_pos.y())**2)
+            if dist < min_dist:
+                min_dist = dist
+                closest_outcome = outcome
+        
+        return closest_outcome
+
+    def calculate_blob_points(self, start_swimlane, end_swimlane, start_outcome, end_outcome):
+        """Calculate points for a blob that connects outcomes"""
+        if not (start_swimlane and end_swimlane):
+            return None
+            
+        # Get angles in radians
+        start_angle = math.radians(start_swimlane.angle)
+        end_angle = math.radians(end_swimlane.angle)
+        
+        # Don't reorder angles - each swimlane should maintain its own shape
+        points = []
+        num_points = 20  # Number of points for smooth curve
+        
+        # Inner curve (center or outcome)
+        inner_radius = 30 if not start_outcome else start_outcome.distance
+        for i in range(num_points):
+            t = i / (num_points - 1)
+            angle = start_angle + t * (end_angle - start_angle)
+            x = self.diagram.center.x() + inner_radius * math.cos(angle)
+            y = self.diagram.center.y() + inner_radius * math.sin(angle)
+            points.append(QPointF(x, y))
+        
+        # Outer curve (outcome)
+        outer_radius = end_outcome.distance if end_outcome else start_swimlane.length * 0.8
+        for i in range(num_points - 1, -1, -1):
+            t = i / (num_points - 1)
+            angle = end_angle + t * (start_angle - end_angle)  # Reverse angle interpolation
+            x = self.diagram.center.x() + outer_radius * math.cos(angle)
+            y = self.diagram.center.y() + outer_radius * math.sin(angle)
+            points.append(QPointF(x, y))
+        
+        return points
+
     def mousePressEvent(self, event):
         try:
             if self.drawing_blob:
                 pos = event.scenePos()
-                self.is_drawing = True
-                self.current_blob_points = [[pos.x(), pos.y()]]
-                if self.current_blob_item:
-                    self.current_blob_item.setPolygon(QPolygonF([QPointF(pos.x(), pos.y())]))
+                if not self.start_swimlane:
+                    # First click - find starting swimlane and outcome
+                    self.start_swimlane = self.find_closest_swimlane(pos)
+                    if self.start_swimlane:
+                        self.start_outcome = self.find_closest_outcome(pos, self.start_swimlane)
+                        # Create preview polygon
+                        self.preview_rect = QGraphicsPolygonItem()
+                        color = QColor(COLORS['primary'])
+                        color.setAlpha(40)
+                        self.preview_rect.setBrush(QBrush(color))
+                        gradient = QLinearGradient(0, 0, 10, 10)
+                        gradient.setColorAt(0, QColor(COLORS['primary']))
+                        gradient.setColorAt(1, QColor(COLORS['primary_light']))
+                        pen = QPen(QBrush(gradient), 2, Qt.DashLine)
+                        self.preview_rect.setPen(pen)
+                        self.addItem(self.preview_rect)
             else:
                 super().mousePressEvent(event)
         except Exception as e:
@@ -656,12 +873,22 @@ class DiagramScene(QGraphicsScene):
 
     def mouseMoveEvent(self, event):
         try:
-            if self.drawing_blob and self.is_drawing and self.current_blob_item:
+            if self.drawing_blob and self.start_swimlane and self.preview_rect:
                 pos = event.scenePos()
-                current_point = [pos.x(), pos.y()]
-                self.current_blob_points.append(current_point)
-                polygon = QPolygonF([QPointF(p[0], p[1]) for p in self.current_blob_points])
-                self.current_blob_item.setPolygon(polygon)
+                self.end_swimlane = self.find_closest_swimlane(pos)
+                if self.end_swimlane:
+                    # Find closest outcome on hover swimlane
+                    self.end_outcome = self.find_closest_outcome(pos, self.end_swimlane)
+                    
+                    # Calculate points for preview
+                    points = self.calculate_blob_points(
+                        self.start_swimlane,
+                        self.end_swimlane,
+                        self.start_outcome,
+                        self.end_outcome
+                    )
+                    if points:
+                        self.preview_rect.setPolygon(QPolygonF(points))
             else:
                 super().mouseMoveEvent(event)
         except Exception as e:
@@ -670,14 +897,33 @@ class DiagramScene(QGraphicsScene):
 
     def mouseReleaseEvent(self, event):
         try:
-            if self.drawing_blob and self.is_drawing:
-                if len(self.current_blob_points) > 2:
-                    self.finish_drawing_blob()
+            if self.drawing_blob and self.start_swimlane:
+                pos = event.scenePos()
+                self.end_swimlane = self.find_closest_swimlane(pos)
+                
+                if self.end_swimlane and self.end_swimlane != self.start_swimlane:
+                    # Find closest outcome on end swimlane
+                    self.end_outcome = self.find_closest_outcome(pos, self.end_swimlane)
+                    
+                    # Calculate final points
+                    points = self.calculate_blob_points(
+                        self.start_swimlane,
+                        self.end_swimlane,
+                        self.start_outcome,
+                        self.end_outcome
+                    )
+                    
+                    if points:
+                        # Create the blob
+                        points_list = [(p.x(), p.y()) for p in points]
+                        self.undo_stack.push(AddBlobCommand(self, points_list, ""))
+                
+                # Clean up
+                self.cleanup_blob_drawing()
             else:
                 super().mouseReleaseEvent(event)
         except Exception as e:
             print(f"Error in mouseReleaseEvent: {e}")
-        finally:
             self.cleanup_blob_drawing()
 
     def keyPressEvent(self, event):
@@ -689,18 +935,6 @@ class DiagramScene(QGraphicsScene):
         except Exception as e:
             print(f"Error in keyPressEvent: {e}")
             self.cleanup_blob_drawing()
-
-
-    def __init__(self, diagram, undo_stack, parent=None):
-        super().__init__(parent)
-        self.diagram = diagram
-        self.undo_stack = undo_stack
-        self.drawing_blob = False
-        self.is_drawing = False
-        self.current_blob_points = []
-        self.last_preview_point = None
-        self.current_blob_item = None
-        self.setSceneRect(-400, -300, 1600, 1200)  # Larger scene rect for zooming
 
     def add_swimlane(self, name, angle):
         try:
@@ -726,12 +960,14 @@ class DiagramScene(QGraphicsScene):
 
     def cleanup_blob_drawing(self):
         """Clean up all blob drawing state"""
-        if self.current_blob_item:
-            self.removeItem(self.current_blob_item)
-            self.current_blob_item = None
-        self.current_blob_points = []
+        if self.preview_rect:
+            self.removeItem(self.preview_rect)
+            self.preview_rect = None
+        self.start_swimlane = None
+        self.start_outcome = None
+        self.end_swimlane = None
+        self.end_outcome = None
         self.drawing_blob = False
-        self.is_drawing = False
         
         # Re-enable selection
         for item in self.items():
@@ -747,8 +983,6 @@ class DiagramScene(QGraphicsScene):
             
             # Start new blob drawing
             self.drawing_blob = True
-            self.is_drawing = False
-            self.current_blob_points = []
             
             # Disable selection
             for item in self.items():
@@ -757,22 +991,19 @@ class DiagramScene(QGraphicsScene):
                     if isinstance(item, SwimlaneItem):
                         item.setSelected(False)
                         item.update_selection_state()
-            
-            # Create preview item
-            self.current_blob_item = QGraphicsPolygonItem()
-            self.current_blob_item.setPen(QPen(Qt.black, 1, Qt.DashLine))
-            self.addItem(self.current_blob_item)
         except Exception as e:
             print(f"Error in start_drawing_blob: {e}")
             self.cleanup_blob_drawing()
 
-    def finish_drawing_blob(self):
+    def finish_drawing_blob(self, points):
         try:
-            if len(self.current_blob_points) > 2:
+            if points:
                 label, ok = QInputDialog.getText(None, "Add Blob", "Enter blob label (optional):")
                 if ok:  # User clicked OK
+                    # Convert QPointF to [x,y] list format
+                    point_list = [[p.x(), p.y()] for p in points]
                     # Create and add the blob
-                    command = AddBlobCommand(self, self.current_blob_points.copy(), label)
+                    command = AddBlobCommand(self, point_list, label)
                     self.undo_stack.push(command)
         except Exception as e:
             print(f"Error creating blob: {e}")
