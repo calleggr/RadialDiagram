@@ -2,16 +2,23 @@ import sys
 import json
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QGraphicsView, QUndoCommand,
                              QWidget, QVBoxLayout, QAction, QInputDialog,
-                             QMessageBox, QUndoStack, QFileDialog, QColorDialog)
-from PyQt5.QtGui import QColor, QPainter, QPen, QBrush
-from PyQt5.QtCore import Qt
+                             QMessageBox, QUndoStack, QFileDialog, QColorDialog,
+                             QToolButton, QFrame)
+from PyQt5.QtGui import QColor, QPainter, QPen, QBrush, QIcon
+from PyQt5.QtCore import Qt, QSize
 from radial_diagram import Diagram, DiagramScene, DiagramView, ScopeBlob, ScopeBlobItem, OutcomeItem, SwimlaneItem
+from styles import STYLESHEET, get_modern_palette, COLORS
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle('Project Scope Diagram')
         self.resize(1000, 800)
+        
+        # Apply modern styling
+        self.setStyleSheet(STYLESHEET)
+        app = QApplication.instance()
+        app.setPalette(get_modern_palette())
 
         # Create central widget and layout
         central_widget = QWidget()
@@ -33,57 +40,110 @@ class MainWindow(QMainWindow):
         # Selection mode
         self.selection_mode = False
 
-        # Create toolbar
+        # Create main toolbar with modern styling
         toolbar = self.addToolBar('Tools')
+        toolbar.setMovable(False)
+        toolbar.setIconSize(QSize(24, 24))
         
         # Edit toolbar
         edit_toolbar = self.addToolBar('Edit')
+        edit_toolbar.setMovable(False)
+        edit_toolbar.setIconSize(QSize(24, 24))
         
-        # Undo/Redo actions
+        # Add separator line
+        separator = QFrame()
+        separator.setFrameShape(QFrame.VLine)
+        separator.setStyleSheet(f'background-color: rgba(255,255,255,0.3)')
+        edit_toolbar.addWidget(separator)
+        
+        # Undo/Redo actions with icons
         undo_action = self.undo_stack.createUndoAction(self)
         undo_action.setShortcut('Ctrl+Z')
-        edit_toolbar.addAction(undo_action)
+        undo_action.setIcon(QIcon.fromTheme('edit-undo'))
+        undo_btn = QToolButton()
+        undo_btn.setDefaultAction(undo_action)
+        edit_toolbar.addWidget(undo_btn)
         
         redo_action = self.undo_stack.createRedoAction(self)
         redo_action.setShortcut('Ctrl+Shift+Z')
-        edit_toolbar.addAction(redo_action)
+        redo_action.setIcon(QIcon.fromTheme('edit-redo'))
+        redo_btn = QToolButton()
+        redo_btn.setDefaultAction(redo_action)
+        edit_toolbar.addWidget(redo_btn)
         
-        # Add swimlane action
+        # Add separator
+        separator2 = QFrame()
+        separator2.setFrameShape(QFrame.VLine)
+        separator2.setStyleSheet(f'background-color: rgba(255,255,255,0.3)')
+        toolbar.addWidget(separator2)
+        
+        # Add swimlane action with modern button
         add_swimlane = QAction('Add Swimlane', self)
+        add_swimlane.setIcon(QIcon.fromTheme('list-add'))
         add_swimlane.triggered.connect(self.add_swimlane)
-        toolbar.addAction(add_swimlane)
+        swimlane_btn = QToolButton()
+        swimlane_btn.setDefaultAction(add_swimlane)
+        toolbar.addWidget(swimlane_btn)
 
         # Add outcome action
         add_outcome = QAction('Add Outcome', self)
+        add_outcome.setIcon(QIcon.fromTheme('bookmark-new'))
         add_outcome.triggered.connect(self.add_outcome)
-        toolbar.addAction(add_outcome)
+        outcome_btn = QToolButton()
+        outcome_btn.setDefaultAction(add_outcome)
+        toolbar.addWidget(outcome_btn)
 
         # Draw blob action
         draw_blob = QAction('Draw Blob', self)
+        draw_blob.setIcon(QIcon.fromTheme('draw-freehand'))
         draw_blob.triggered.connect(self.scene.start_drawing_blob)
-        toolbar.addAction(draw_blob)
+        blob_btn = QToolButton()
+        blob_btn.setDefaultAction(draw_blob)
+        toolbar.addWidget(blob_btn)
         
         # Selection mode
         select_action = QAction('Select', self)
+        select_action.setIcon(QIcon.fromTheme('edit-select-all'))
         select_action.setCheckable(True)
         select_action.triggered.connect(self.toggle_selection_mode)
-        toolbar.addAction(select_action)
+        select_btn = QToolButton()
+        select_btn.setDefaultAction(select_action)
+        toolbar.addWidget(select_btn)
+        
+        # Add separator
+        separator3 = QFrame()
+        separator3.setFrameShape(QFrame.VLine)
+        separator3.setStyleSheet(f'background-color: rgba(255,255,255,0.3)')
+        toolbar.addWidget(separator3)
         
         # Color actions
-        color_toolbar = self.addToolBar('Colors')
-        
         change_color = QAction('Change Color', self)
+        change_color.setIcon(QIcon.fromTheme('color-picker'))
         change_color.triggered.connect(self.change_selected_color)
-        color_toolbar.addAction(change_color)
+        color_btn = QToolButton()
+        color_btn.setDefaultAction(change_color)
+        toolbar.addWidget(color_btn)
+        
+        # Add separator
+        separator4 = QFrame()
+        separator4.setFrameShape(QFrame.VLine)
+        separator4.setStyleSheet(f'background-color: rgba(255,255,255,0.3)')
+        toolbar.addWidget(separator4)
         
         # Save/Load actions
         save_action = QAction('Save', self)
+        save_action.setIcon(QIcon.fromTheme('document-save'))
         save_action.triggered.connect(self.save_diagram)
-        toolbar.addAction(save_action)
+        save_btn = QToolButton()
+        save_btn.setDefaultAction(save_action)
+        toolbar.addWidget(save_btn)
 
         load_action = QAction('Load', self)
+        load_action.setIcon(QIcon.fromTheme('document-open'))
         load_action.triggered.connect(self.load_diagram)
-        toolbar.addAction(load_action)
+        load_btn = QToolButton()
+        load_btn.setDefaultAction(load_action)
+        toolbar.addWidget(load_btn)
 
     def add_swimlane(self):
         name, ok = QInputDialog.getText(self, 'Add Swimlane', 'Enter swimlane name:')
