@@ -1,13 +1,42 @@
 import sys
+import os
 import json
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QGraphicsView, QUndoCommand,
-                             QWidget, QVBoxLayout, QAction, QInputDialog,
-                             QMessageBox, QUndoStack, QFileDialog, QColorDialog,
-                             QToolButton, QFrame)
-from PyQt5.QtGui import QColor, QPainter, QPen, QBrush, QIcon
-from PyQt5.QtCore import Qt, QSize
-from radial_diagram import Diagram, DiagramScene, DiagramView, ScopeBlob, ScopeBlobItem, OutcomeItem, SwimlaneItem
-from styles import STYLESHEET, get_modern_palette, COLORS
+import math
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QGraphicsView, QGraphicsScene, QGraphicsEllipseItem,
+    QGraphicsLineItem, QGraphicsPathItem, QGraphicsTextItem, QGraphicsItem,
+    QVBoxLayout, QHBoxLayout, QWidget, QToolBar, QAction, QColorDialog,
+    QUndoStack, QUndoCommand, QToolButton, QFrame, QInputDialog, QFileDialog,
+    QMessageBox, QMenu
+)
+from PyQt5.QtCore import Qt, QPointF, QRectF, QSize
+from PyQt5.QtGui import QPen, QBrush, QColor, QPainterPath, QIcon
+
+# Import from models
+from models.diagram import Diagram
+from models.swimlane import Swimlane
+from models.outcome import Outcome
+from models.scope_blob import ScopeBlob
+
+# Import from views
+from views.diagram_scene import DiagramScene
+from views.swimlane_item import SwimlaneItem
+from views.outcome_item import OutcomeItem
+from views.scope_blob_item import ScopeBlobItem
+
+# Import from commands
+from commands.add_blob_command import AddBlobCommand
+from commands.delete_blob_command import DeleteBlobCommand
+from commands.change_color_command import ChangeColorCommand
+from commands.move_command import MoveCommand
+
+# Import from styles
+from styles.colors import get_color_palette, DEFAULT_COLORS
+from styles.stylesheet import get_stylesheet
+
+# Import from utils
+from utils.geometry import calculate_point_on_line
+from utils.id_generator import generate_id
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -16,9 +45,9 @@ class MainWindow(QMainWindow):
         self.resize(1000, 800)
         
         # Apply modern styling
-        self.setStyleSheet(STYLESHEET)
+        self.setStyleSheet(get_stylesheet())
         app = QApplication.instance()
-        app.setPalette(get_modern_palette())
+        app.setPalette(get_color_palette())
 
         # Create central widget and layout
         central_widget = QWidget()
@@ -33,7 +62,7 @@ class MainWindow(QMainWindow):
         self.scene = DiagramScene(self.diagram, self.undo_stack)
         
         # Create view with zoom support
-        self.view = DiagramView(self.scene)
+        self.view = QGraphicsView(self.scene)
         self.view.setDragMode(QGraphicsView.RubberBandDrag)
         layout.addWidget(self.view)
         
@@ -271,56 +300,18 @@ class MainWindow(QMainWindow):
             self.undo_stack.push(command)
 
 
-class ChangeColorCommand(QUndoCommand):
-    def __init__(self, items, new_color):
-        super().__init__("Change Color")
-        self.items = items
-        self.new_color = new_color
-        self.old_colors = []
-        
-        for item in items:
-            if isinstance(item, ScopeBlobItem):
-                self.old_colors.append((item, item.blob.color))
-            elif isinstance(item, OutcomeItem):
-                self.old_colors.append((item, item.brush().color()))
-            elif isinstance(item, SwimlaneItem):
-                self.old_colors.append((item, item.pen().color()))
-    
-    def redo(self):
-        for item in self.items:
-            if isinstance(item, ScopeBlobItem):
-                item.blob.color = self.new_color
-                item.setBrush(QBrush(self.new_color))
-            elif isinstance(item, OutcomeItem):
-                item.setBrush(QBrush(self.new_color))
-            elif isinstance(item, SwimlaneItem):
-                item.swimlane.color = self.new_color  # Update swimlane's color
-                item.normal_pen = QPen(self.new_color, 2)  # Update normal pen
-                item.setPen(item.normal_pen)  # Apply the pen
-    
-    def undo(self):
-        for item, old_color in self.old_colors:
-            if isinstance(item, ScopeBlobItem):
-                item.blob.color = old_color
-                item.setBrush(QBrush(old_color))
-            elif isinstance(item, OutcomeItem):
-                item.setBrush(QBrush(old_color))
-            elif isinstance(item, SwimlaneItem):
-                item.swimlane.color = old_color  # Restore swimlane's color
-                item.normal_pen = QPen(old_color, 2)  # Restore normal pen
-                item.setPen(item.normal_pen)  # Apply the pen
-
-
 def main():
     app = QApplication(sys.argv)
     window = MainWindow()
     
     # Create some example data
+    # Add swimlanes first
     window.scene.add_swimlane('DevOps', 0)
     window.scene.add_swimlane('Channel', 45)
     window.scene.add_swimlane('Infrastructure', 90)
     window.scene.add_swimlane('Features', 135)
     
+    # Then add outcomes
     window.scene.add_outcome('DevOps', 100, 'CI/CD')
     window.scene.add_outcome('DevOps', 200, 'Monitoring')
     window.scene.add_outcome('Channel', 100, 'Web')

@@ -79,6 +79,7 @@ class ScopeBlob:
         self.end_swimlane = None
         self.start_outcome = None
         self.end_outcome = None
+        self.associated_blobs = []  # Initialize associated_blobs
 
     def add_outcome(self, outcome):
         if outcome not in self.outcomes:
@@ -135,11 +136,24 @@ class Diagram:
 
     def remove_blob(self, blob):
         if blob in self.blobs:
-            for outcome in blob.outcomes:
-                if blob in outcome.associated_blobs:
-                    outcome.associated_blobs.remove(blob)
+            # Safe removal from outcomes
+            try:
+                if hasattr(blob, 'start_outcome') and blob.start_outcome:
+                    if hasattr(blob.start_outcome, 'associated_blobs'):
+                        if blob in blob.start_outcome.associated_blobs:
+                            blob.start_outcome.associated_blobs.remove(blob)
+            except Exception as e:
+                print(f"Error removing from start outcome: {e}")
+                
+            try:
+                if hasattr(blob, 'end_outcome') and blob.end_outcome:
+                    if hasattr(blob.end_outcome, 'associated_blobs'):
+                        if blob in blob.end_outcome.associated_blobs:
+                            blob.end_outcome.associated_blobs.remove(blob)
+            except Exception as e:
+                print(f"Error removing from end outcome: {e}")
+                
             self.blobs.remove(blob)
-
     def find_outcomes_in_blob(self, blob):
         for swimlane in self.swimlanes.values():
             for outcome in swimlane.outcomes:
@@ -548,9 +562,13 @@ class AddBlobCommand(QUndoCommand):
 
     def redo(self):
         try:
-            # Create blob with modern styling
-            color = QColor(COLORS['primary'])
-            color.setAlpha(40)
+            # Get next segment color
+            segment_num = len(self.scene.diagram.blobs) % 4 + 1
+            color_key = f'segment{segment_num}'
+            
+            # Create blob with segment color
+            color = QColor(COLORS[color_key])
+            color.setAlpha(80)
             self.blob = self.scene.diagram.add_blob(self.points, color=color, label=self.label)
             
             # Store swimlanes and outcomes
@@ -564,11 +582,14 @@ class AddBlobCommand(QUndoCommand):
             self.scene.addItem(self.blob_item)
             self.blob.polygon_item = self.blob_item
             
-            # Associate blob with outcomes
-            if self.blob.start_outcome:
-                self.blob.start_outcome.item.associated_blobs.append(self.blob_item)
-            if self.blob.end_outcome:
-                self.blob.end_outcome.item.associated_blobs.append(self.blob_item)
+            # Associate blob with outcomes safely
+            if self.blob.start_outcome and hasattr(self.blob.start_outcome, 'item'):
+                if hasattr(self.blob.start_outcome.item, 'associated_blobs'):
+                    self.blob.start_outcome.item.associated_blobs.append(self.blob_item)
+            
+            if self.blob.end_outcome and hasattr(self.blob.end_outcome, 'item'):
+                if hasattr(self.blob.end_outcome.item, 'associated_blobs'):
+                    self.blob.end_outcome.item.associated_blobs.append(self.blob_item)
         except Exception as e:
             print(f"Error in AddBlobCommand.redo: {e}")
 
@@ -593,44 +614,124 @@ class ScopeBlobItem(QGraphicsPolygonItem):
         super().__init__()
         self.blob = blob
         self.diagram_scene = diagram_scene
+        self.dragging = False
+        self.start_pos = None
         
-        # Modern styling
-        color = QColor(COLORS['primary'])
-        color.setAlpha(40)  # Very transparent fill
-        self.setBrush(QBrush(color))
+        # Get segment color based on position
+        segment_num = len(self.diagram_scene.diagram.blobs) % 4 + 1
+        self.color_key = f'segment{segment_num}'
+        self.light_key = f'segment{segment_num}_light'
         
-        # Gradient pen for a more polished look
-        gradient = QLinearGradient(0, 0, 10, 10)
-        gradient.setColorAt(0, QColor(COLORS['primary']))
-        gradient.setColorAt(1, QColor(COLORS['primary_light']))
-        pen = QPen(QBrush(gradient), 2)
-        pen.setStyle(Qt.SolidLine)
-        self.setPen(pen)
+        # Set fill color with transparency
+        self.update_colors()
         
         self.update_polygon()
         self.setFlag(QGraphicsPolygonItem.ItemIsSelectable, True)
-        # Make sure blob doesn't block mouse events to items underneath
-        self.setAcceptedMouseButtons(Qt.NoButton)
+        self.setFlag(QGraphicsPolygonItem.ItemIsMovable, True)
+        self.setAcceptHoverEvents(True)
         
         # Modern label styling
         self.label_item = QGraphicsTextItem(self.blob.label, self)
         self.label_item.setDefaultTextColor(QColor(COLORS['text']))
         if self.blob.points:
-            # Center the label
-            br = self.boundingRect()
-            label_br = self.label_item.boundingRect()
-            self.label_item.setPos(
-                br.center().x() - label_br.width() / 2,
-                br.center().y() - label_br.height() / 2
-            )
-
+            self.update_label_position()
+    
+    def update_colors(self):
+        color = QColor(COLORS[self.color_key])
+        color.setAlpha(80)
+        self.setBrush(QBrush(color))
+        
+        gradient = QLinearGradient(0, 0, 10, 10)
+        gradient.setColorAt(0, QColor(COLORS[self.color_key]))
+        gradient.setColorAt(1, QColor(COLORS[self.light_key]))
+        pen = QPen(QBrush(gradient), 2)
+        pen.setStyle(Qt.SolidLine)
+        self.setPen(pen)
+    
+    def update_label_position(self):
+        br = self.boundingRect()
+        label_br = self.label_item.boundingRect()
+        self.label_item.setPos(
+            br.center().x() - label_br.width() / 2,
+            br.center().y() - label_br.height() / 2
+        )
+    
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.dragging = True
+            self.start_pos = event.pos()
+        elif event.button() == Qt.RightButton:
+            self.show_context_menu(event.screenPos())
+        super().mousePressEvent(event)
+    
+    def mouseReleaseEvent(self, event):
+        self.dragging = False
+        super().mouseReleaseEvent(event)
+    
+    def mouseMoveEvent(self, event):
+        if self.dragging:
+            super().mouseMoveEvent(event)
+            self.update_label_position()
+    
+    def hoverEnterEvent(self, event):
+        # Highlight on hover
+        color = QColor(COLORS[self.color_key])
+        color.setAlpha(120)  # More opaque when hovering
+        self.setBrush(QBrush(color))
+        super().hoverEnterEvent(event)
+    
+    def hoverLeaveEvent(self, event):
+        if not self.isSelected():
+            color = QColor(COLORS[self.color_key])
+            color.setAlpha(80)  # Return to normal opacity
+            self.setBrush(QBrush(color))
+        super().hoverLeaveEvent(event)
+    
+    def show_context_menu(self, pos):
+        menu = QMenu()
+        
+        # Color submenu
+        color_menu = menu.addMenu("Change Color")
+        for i in range(1, 5):
+            color_key = f'segment{i}'
+            action = color_menu.addAction(f"Color {i}")
+            action.triggered.connect(lambda checked, k=color_key: self.change_color(k))
+        
+        # Delete action
+        delete_action = menu.addAction("Delete")
+        delete_action.triggered.connect(self.delete_blob)
+        
+        menu.exec_(pos.toPoint())
+    
+    def change_color(self, new_color_key):
+        self.color_key = new_color_key
+        self.light_key = f"{new_color_key}_light"
+        self.update_colors()
+    
+    def delete_blob(self):
+        # Remove from associated outcomes safely
+        try:
+            if self.blob.start_outcome and hasattr(self.blob.start_outcome, 'item'):
+                if hasattr(self.blob.start_outcome.item, 'associated_blobs'):
+                    if self in self.blob.start_outcome.item.associated_blobs:
+                        self.blob.start_outcome.item.associated_blobs.remove(self)
+        except Exception as e:
+            print(f"Error removing from start outcome: {e}")
+        
+        try:
+            if self.blob.end_outcome and hasattr(self.blob.end_outcome, 'item'):
+                if hasattr(self.blob.end_outcome.item, 'associated_blobs'):
+                    if self in self.blob.end_outcome.item.associated_blobs:
+                        self.blob.end_outcome.item.associated_blobs.remove(self)
+        except Exception as e:
+            print(f"Error removing from end outcome: {e}")
+        
+        # Remove from scene and diagram
+        self.diagram_scene.removeItem(self)
+        self.diagram_scene.diagram.remove_blob(self.blob)
     def update_polygon(self):
         polygon = QPolygonF([QPointF(p[0], p[1]) for p in self.blob.points])
         self.setPolygon(polygon)
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.RightButton:
-            self.diagram_scene.show_blob_context_menu(event.screenPos(), self)
         super().mousePressEvent(event)
 
 class DiagramView(QGraphicsView):
@@ -813,7 +914,7 @@ class DiagramScene(QGraphicsScene):
         return closest_outcome
 
     def calculate_blob_points(self, start_swimlane, end_swimlane, start_outcome, end_outcome):
-        """Calculate points for a blob that connects outcomes"""
+        """Calculate points for a pie-chart like segment"""
         if not (start_swimlane and end_swimlane):
             return None
             
@@ -821,27 +922,39 @@ class DiagramScene(QGraphicsScene):
         start_angle = math.radians(start_swimlane.angle)
         end_angle = math.radians(end_swimlane.angle)
         
-        # Don't reorder angles - each swimlane should maintain its own shape
+        # Ensure proper angle order for arc drawing
+        if end_angle < start_angle:
+            end_angle += 2 * math.pi
+        
+        # Calculate radii
+        inner_radius = 30  # Minimum distance from center
+        outer_radius = max(start_outcome.distance if start_outcome else 200,
+                          end_outcome.distance if end_outcome else 200)
+        
         points = []
-        num_points = 20  # Number of points for smooth curve
+        num_points = 30  # More points for smoother curves
         
-        # Inner curve (center or outcome)
-        inner_radius = 30 if not start_outcome else start_outcome.distance
-        for i in range(num_points):
-            t = i / (num_points - 1)
-            angle = start_angle + t * (end_angle - start_angle)
-            x = self.diagram.center.x() + inner_radius * math.cos(angle)
-            y = self.diagram.center.y() + inner_radius * math.sin(angle)
-            points.append(QPointF(x, y))
+        # Start from center
+        points.append(self.diagram.center)
         
-        # Outer curve (outcome)
-        outer_radius = end_outcome.distance if end_outcome else start_swimlane.length * 0.8
-        for i in range(num_points - 1, -1, -1):
-            t = i / (num_points - 1)
-            angle = end_angle + t * (start_angle - end_angle)  # Reverse angle interpolation
+        # Draw line from center to inner arc at start angle
+        x = self.diagram.center.x() + inner_radius * math.cos(start_angle)
+        y = self.diagram.center.y() + inner_radius * math.sin(start_angle)
+        points.append(QPointF(x, y))
+        
+        # Draw outer arc from start to end angle
+        for i in range(num_points + 1):
+            t = i / num_points
+            angle = start_angle * (1 - t) + end_angle * t
             x = self.diagram.center.x() + outer_radius * math.cos(angle)
             y = self.diagram.center.y() + outer_radius * math.sin(angle)
             points.append(QPointF(x, y))
+        
+        # Draw line back to center
+        x = self.diagram.center.x() + inner_radius * math.cos(end_angle)
+        y = self.diagram.center.y() + inner_radius * math.sin(end_angle)
+        points.append(QPointF(x, y))
+        points.append(self.diagram.center)
         
         return points
 
@@ -856,12 +969,17 @@ class DiagramScene(QGraphicsScene):
                         self.start_outcome = self.find_closest_outcome(pos, self.start_swimlane)
                         # Create preview polygon
                         self.preview_rect = QGraphicsPolygonItem()
-                        color = QColor(COLORS['primary'])
+                        # Get next segment color
+                        segment_num = len(self.diagram.blobs) % 4 + 1
+                        color_key = f'segment{segment_num}'
+                        light_key = f'segment{segment_num}_light'
+                        
+                        color = QColor(COLORS[color_key])
                         color.setAlpha(40)
                         self.preview_rect.setBrush(QBrush(color))
                         gradient = QLinearGradient(0, 0, 10, 10)
-                        gradient.setColorAt(0, QColor(COLORS['primary']))
-                        gradient.setColorAt(1, QColor(COLORS['primary_light']))
+                        gradient.setColorAt(0, QColor(COLORS[color_key]))
+                        gradient.setColorAt(1, QColor(COLORS[light_key]))
                         pen = QPen(QBrush(gradient), 2, Qt.DashLine)
                         self.preview_rect.setPen(pen)
                         self.addItem(self.preview_rect)

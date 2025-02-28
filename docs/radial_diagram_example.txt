@@ -1,0 +1,8 @@
+This is a placeholder for the radial diagram example image.
+
+To create an actual image:
+1. Run the application
+2. Create a sample diagram with multiple swimlanes, outcomes, and blobs
+3. Take a screenshot
+4. Save as docs/radial_diagram_example.png
+5. Replace the reference in README.md

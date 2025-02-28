@@ -3,20 +3,20 @@ from PyQt5.QtCore import Qt
 
 # Modern color scheme
 COLORS = {
-    'primary': '#2196F3',  # Material Blue
-    'primary_light': '#64B5F6',
-    'primary_dark': '#1976D2',
-    'accent': '#FF4081',  # Pink accent
+    'segment1': '#00BCD4',  # Turquoise
+    'segment2': '#2196F3',  # Blue 
+    'segment3': '#E91E63',  # Pink
+    'segment4': '#F44336',  # Red
+    'segment1_light': '#4DD0E1',
+    'segment2_light': '#64B5F6',
+    'segment3_light': '#F06292',
+    'segment4_light': '#EF5350',
     'background': '#FAFAFA',
     'surface': '#FFFFFF',
     'text': '#212121',
     'text_secondary': '#757575',
     'divider': '#BDBDBD',
-    'success': '#4CAF50',
-    'warning': '#FFC107',
-    'error': '#F44336',
-    'toolbar': '#1E88E5',
-    'hover': '#E3F2FD'
+    'error': '#F44336'
 }
 
 # Modern styling
@@ -26,7 +26,7 @@ QMainWindow {{
 }}
 
 QToolBar {{
-    background-color: {COLORS['toolbar']};
+    background-color: {COLORS['segment2']};
     border: none;
     padding: 6px;
     spacing: 8px;
@@ -53,7 +53,7 @@ QToolBar QToolButton:checked {{
 }}
 
 QPushButton {{
-    background-color: {COLORS['primary']};
+    background-color: {COLORS['segment2']};
     color: white;
     border: none;
     border-radius: 4px;
@@ -62,11 +62,11 @@ QPushButton {{
 }}
 
 QPushButton:hover {{
-    background-color: {COLORS['primary_light']};
+    background-color: {COLORS['segment2_light']};
 }}
 
 QPushButton:pressed {{
-    background-color: {COLORS['primary_dark']};
+    background-color: {COLORS['segment2']};
 }}
 
 QSlider {{
@@ -81,7 +81,7 @@ QSlider::groove:horizontal {{
 }}
 
 QSlider::handle:horizontal {{
-    background: {COLORS['primary']};
+    background: {COLORS['segment2']};
     border: none;
     width: 16px;
     height: 16px;
@@ -90,7 +90,7 @@ QSlider::handle:horizontal {{
 }}
 
 QSlider::handle:horizontal:hover {{
-    background: {COLORS['primary_light']};
+    background: {COLORS['segment2_light']};
     width: 20px;
     height: 20px;
     margin: -8px 0;
@@ -145,8 +145,8 @@ def get_modern_palette():
     palette.setColor(QPalette.ToolTipBase, QColor(COLORS['surface']))
     palette.setColor(QPalette.ToolTipText, QColor(COLORS['text']))
     palette.setColor(QPalette.Text, QColor(COLORS['text']))
-    palette.setColor(QPalette.Button, QColor(COLORS['primary']))
+    palette.setColor(QPalette.Button, QColor(COLORS['segment2']))
     palette.setColor(QPalette.ButtonText, QColor('white'))
-    palette.setColor(QPalette.Highlight, QColor(COLORS['primary']))
+    palette.setColor(QPalette.Highlight, QColor(COLORS['segment2']))
     palette.setColor(QPalette.HighlightedText, QColor('white'))
     return palette
