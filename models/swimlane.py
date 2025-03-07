@@ -16,10 +16,12 @@ class Swimlane:
         angle (float): Angle in degrees from the center
         label (str): Text label for the swimlane
         color (QColor): Color of the swimlane
+        length (float): Length of the swimlane from center
+        outcomes (list): List of outcomes on this swimlane
         item (SwimlaneItem): Reference to the visual representation (set by view)
     """
     
-    def __init__(self, label="", angle=0, color=None, id=None):
+    def __init__(self, label="", angle=0, color=None, id=None, length=250):
         """
         Initialize a new Swimlane.
         
@@ -28,11 +30,14 @@ class Swimlane:
             angle (float, optional): Angle in degrees from the center. Defaults to 0.
             color (QColor, optional): Color of the swimlane. Defaults to segment1 color.
             id (int, optional): Unique identifier. Defaults to None (auto-generated).
+            length (float, optional): Length of the swimlane from center. Defaults to 250.
         """
         self.id = id or generate_unique_id()
         self.angle = angle
         self.label = label
         self.color = color or QColor(COLORS['segment1'])
+        self.length = length
+        self.outcomes = []  # List of outcomes on this swimlane
         self.item = None  # Reference to the visual representation
     
     def to_dict(self):
@@ -46,7 +51,8 @@ class Swimlane:
             'id': self.id,
             'angle': self.angle,
             'label': self.label,
-            'color': self.color.name()
+            'color': self.color.name(),
+            'length': self.length
         }
     
     @classmethod
@@ -64,5 +70,6 @@ class Swimlane:
             angle=data['angle'],
             label=data.get('label', ""),
             color=QColor(data.get('color', COLORS['segment1'])),
-            id=data.get('id')
+            id=data.get('id'),
+            length=data.get('length', 250)
         )

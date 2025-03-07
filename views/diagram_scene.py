@@ -45,6 +45,7 @@ class DiagramScene(QGraphicsScene):
         self.diagram = diagram
         self.undo_stack = undo_stack
         self.center = diagram.center
+        # Keep radius for other calculations but not for swimlane length
         self.radius = 300  # Default radius
         self.selected_item = None
         
@@ -278,7 +279,7 @@ class DiagramScene(QGraphicsScene):
         
         print("Blob drawing mode activated. Click on an outcome to start drawing.")
     
-    def add_swimlane(self, label, angle, color=None):
+    def add_swimlane(self, label, angle, color=None, length=250):
         """
         Add a new swimlane to the diagram.
         
@@ -286,6 +287,7 @@ class DiagramScene(QGraphicsScene):
             label (str): The label for the swimlane
             angle (float): The angle of the swimlane in degrees
             color (QColor, optional): The color of the swimlane. Defaults to None.
+            length (float, optional): The length of the swimlane. Defaults to 250.
             
         Returns:
             Swimlane: The created swimlane
@@ -293,7 +295,7 @@ class DiagramScene(QGraphicsScene):
         from models.swimlane import Swimlane
         
         # Create swimlane model
-        swimlane = Swimlane(label=label, angle=angle, color=color)
+        swimlane = Swimlane(label=label, angle=angle, color=color, length=length)
         
         # Add to diagram
         self.diagram.add_swimlane(swimlane)

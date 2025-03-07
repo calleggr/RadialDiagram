@@ -34,7 +34,7 @@ class Diagram:
         self.outcomes = {}
         self.blobs = []
     
-    def add_swimlane(self, swimlane_or_angle, label="", color=None):
+    def add_swimlane(self, swimlane_or_angle, label="", color=None, length=250):
         """
         Add a new swimlane to the diagram.
         
@@ -42,6 +42,7 @@ class Diagram:
             swimlane_or_angle: Either a Swimlane object or an angle in degrees from the center
             label (str, optional): Text label for the swimlane. Defaults to "".
             color (QColor, optional): Color of the swimlane. Defaults to None.
+            length (float, optional): Length of the swimlane from center. Defaults to 250.
             
         Returns:
             Swimlane: The newly created swimlane
@@ -49,7 +50,7 @@ class Diagram:
         if isinstance(swimlane_or_angle, Swimlane):
             swimlane = swimlane_or_angle
         else:
-            swimlane = Swimlane(swimlane_or_angle, label, color)
+            swimlane = Swimlane(label, swimlane_or_angle, color, length=length)
         
         self.swimlanes[swimlane.id] = swimlane
         return swimlane

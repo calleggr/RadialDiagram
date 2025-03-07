@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QGraphicsView, QGraphics
 from PyQt5.QtGui import (QPainter, QPen, QBrush, QColor, QPolygonF, QPainterPath,
                         QLinearGradient, QIcon)
 from PyQt5.QtCore import Qt, QPointF, QLineF, QRectF, QPoint, QSizeF
-from styles import COLORS
+from styles.colors import COLORS
 
 # --- Utility Functions ---
 
@@ -1091,8 +1091,10 @@ class DiagramScene(QGraphicsScene):
         for item in self.items():
             if isinstance(item, (SwimlaneItem, OutcomeItem)):
                 item.setFlag(QGraphicsItem.ItemIsSelectable, True)
-                if isinstance(item, SwimlaneItem):
-                    item.update_selection_state()
+        
+        # Reset cursor
+        for view in self.views():
+            view.setCursor(Qt.ArrowCursor)
     
     def start_drawing_blob(self):
         try:
@@ -1108,7 +1110,15 @@ class DiagramScene(QGraphicsScene):
                     item.setFlag(QGraphicsItem.ItemIsSelectable, False)
                     if isinstance(item, SwimlaneItem):
                         item.setSelected(False)
-                        item.update_selection_state()
+                        # Update resize handle visibility
+                        if hasattr(item, 'resize_handle'):
+                            item.resize_handle.setVisible(False)
+            
+            # Set cursor to indicate drawing mode
+            for view in self.views():
+                view.setCursor(Qt.CrossCursor)
+                
+            print("Blob drawing mode activated. Click on an outcome to start drawing.")
         except Exception as e:
             print(f"Error in start_drawing_blob: {e}")
             self.cleanup_blob_drawing()

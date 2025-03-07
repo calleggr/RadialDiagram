@@ -3,11 +3,135 @@ SwimlaneItem class for visual representation of swimlanes.
 """
 
 import math
-from PyQt5.QtWidgets import QGraphicsLineItem, QGraphicsTextItem, QGraphicsItem
+from PyQt5.QtWidgets import QGraphicsLineItem, QGraphicsTextItem, QGraphicsItem, QGraphicsRectItem
 from PyQt5.QtCore import Qt, QPointF
-from PyQt5.QtGui import QPen, QColor, QFont
+from PyQt5.QtGui import QPen, QColor, QFont, QBrush
 
 from utils.geometry import calculate_point_on_line
+
+
+class ResizeHandle(QGraphicsRectItem):
+    """
+    Handle for resizing and rotating swimlanes.
+    
+    Attributes:
+        parent_item (SwimlaneItem): The parent swimlane item
+        dragging (bool): Whether the handle is being dragged
+        start_pos (QPointF): Starting position for drag operations
+    """
+    
+    def __init__(self, parent=None):
+        """
+        Initialize a new ResizeHandle.
+        
+        Args:
+            parent (SwimlaneItem): The parent swimlane item
+        """
+        super().__init__(-5, -5, 10, 10, parent)
+        self.setBrush(QBrush(Qt.white))
+        self.setPen(QPen(Qt.black))
+        self.setCursor(Qt.CrossCursor)
+        self.parent_item = parent
+        self.setAcceptHoverEvents(True)
+        self.setFlag(QGraphicsItem.ItemIsSelectable, False)
+        self.setFlag(QGraphicsItem.ItemSendsGeometryChanges, True)
+        self.dragging = False
+        self.start_pos = None
+    
+    def hoverEnterEvent(self, event):
+        """
+        Handle hover enter events.
+        
+        Args:
+            event: The hover event
+        """
+        self.setCursor(Qt.CrossCursor)
+        super().hoverEnterEvent(event)
+    
+    def hoverLeaveEvent(self, event):
+        """
+        Handle hover leave events.
+        
+        Args:
+            event: The hover event
+        """
+        self.setCursor(Qt.ArrowCursor)
+        super().hoverLeaveEvent(event)
+    
+    def mousePressEvent(self, event):
+        """
+        Handle mouse press events.
+        
+        Args:
+            event: The mouse event
+        """
+        if event.button() == Qt.LeftButton:
+            self.dragging = True
+            self.start_pos = event.pos()
+            self.setCursor(Qt.ClosedHandCursor)
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+    
+    def mouseReleaseEvent(self, event):
+        """
+        Handle mouse release events.
+        
+        Args:
+            event: The mouse event
+        """
+        if event.button() == Qt.LeftButton and self.dragging:
+            self.dragging = False
+            self.start_pos = None
+            self.setCursor(Qt.CrossCursor)
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
+    
+    def mouseMoveEvent(self, event):
+        """
+        Handle mouse move events.
+        
+        Args:
+            event: The mouse event
+        """
+        if not self.dragging:
+            return super().mouseMoveEvent(event)
+        
+        # Get scene position of mouse
+        scene_pos = event.scenePos()
+        
+        # Get center of swimlane (should be fixed)
+        center = self.parent_item.line().p1()
+        
+        # Calculate new angle and length
+        dx = scene_pos.x() - center.x()
+        dy = scene_pos.y() - center.y()
+        
+        # Calculate new angle and length
+        new_angle = math.atan2(dy, dx)
+        new_length = max(50, math.sqrt(dx * dx + dy * dy))  # Minimum length of 50
+        
+        # Update line end point
+        new_end = calculate_point_on_line(center, new_angle, new_length)
+        self.parent_item.setLine(center.x(), center.y(), new_end.x(), new_end.y())
+        
+        # Update handle position
+        self.setPos(new_end - self.parent_item.pos())
+        
+        # Update label position
+        self.parent_item.update_label_position()
+        
+        # Update model
+        self.parent_item.update_model()
+        
+        # Update outcomes on this swimlane
+        for outcome in self.parent_item.swimlane.outcomes:
+            outcome.calculate_position()
+            if hasattr(outcome, 'item') and outcome.item:
+                outcome.item.setPos(outcome.position - QPointF(5, 5))
+        
+        event.accept()
 
 
 class SwimlaneItem(QGraphicsLineItem):
@@ -26,6 +150,7 @@ class SwimlaneItem(QGraphicsLineItem):
         start_pos (QPointF): Starting position for drag operations
         start_angle (float): Starting angle for rotation operations
         start_length (float): Starting length for resize operations
+        resize_handle (ResizeHandle): The resize handle
     """
     
     def __init__(self, swimlane, diagram_scene):
@@ -39,7 +164,7 @@ class SwimlaneItem(QGraphicsLineItem):
         # Calculate line points
         center = diagram_scene.center
         angle_rad = math.radians(swimlane.angle)
-        end_point = calculate_point_on_line(center, angle_rad, diagram_scene.radius)
+        end_point = calculate_point_on_line(center, angle_rad, swimlane.length)
         
         super().__init__(center.x(), center.y(), end_point.x(), end_point.y())
         
@@ -54,9 +179,8 @@ class SwimlaneItem(QGraphicsLineItem):
         # Set initial pen
         self.setPen(self.normal_pen)
         
-        # Make item selectable and movable
+        # Make item selectable
         self.setFlag(QGraphicsItem.ItemIsSelectable)
-        self.setFlag(QGraphicsItem.ItemIsMovable)
         self.setFlag(QGraphicsItem.ItemSendsGeometryChanges)
         self.setAcceptHoverEvents(True)
         
@@ -70,6 +194,12 @@ class SwimlaneItem(QGraphicsLineItem):
         
         # Add to scene
         diagram_scene.addItem(self.label_item)
+        
+        # Add resize handle at the end of the line
+        self.resize_handle = ResizeHandle(self)
+        self.update_handle_position()
+        # Initially hide the resize handle until selected
+        self.resize_handle.setVisible(False)
         
         # For drag and resize operations
         self.is_resizing = False
@@ -230,7 +360,9 @@ class SwimlaneItem(QGraphicsLineItem):
             # Accept the event
             event.accept()
         else:
-            super().mouseMoveEvent(event)
+            # Don't allow moving the entire swimlane
+            # Only allow resizing and rotating from the end
+            event.ignore()
     
     def mouseReleaseEvent(self, event):
         """
@@ -267,6 +399,8 @@ class SwimlaneItem(QGraphicsLineItem):
         if change == QGraphicsItem.ItemSelectedChange:
             # Update pen based on selection state
             self.setPen(value and self.selected_pen or self.normal_pen)
+            # Show/hide resize handle based on selection state
+            self.resize_handle.setVisible(bool(value))
         
         return super().itemChange(change, value)
     
@@ -337,3 +471,28 @@ class SwimlaneItem(QGraphicsLineItem):
             self.swimlane.label = text
             self.label_item.setPlainText(text)
             self.update_label_position()
+
+    def update_handle_position(self):
+        """
+        Update the position of the resize handle based on the line position.
+        """
+        line = self.line()
+        self.resize_handle.setPos(line.p2() - line.p1())
+    
+    def update_line_and_label(self):
+        """
+        Update the line and label based on the swimlane model.
+        """
+        # Calculate line points
+        center = self.diagram_scene.center
+        angle_rad = math.radians(self.swimlane.angle)
+        end_point = calculate_point_on_line(center, angle_rad, self.swimlane.length)
+        
+        # Update line
+        self.setLine(center.x(), center.y(), end_point.x(), end_point.y())
+        
+        # Update label position
+        self.update_label_position()
+        
+        # Update handle position
+        self.update_handle_position()
